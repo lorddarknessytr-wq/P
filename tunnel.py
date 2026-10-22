@@ -1,4 +1,4 @@
-import subprocess, re, os, requests, base64
+import subprocess, re, os, requests, base64, time
 
 token = os.environ["GH_TOKEN"]
 repo = os.environ["GITHUB_REPOSITORY"]
@@ -16,13 +16,22 @@ for line in iter(p.stderr.readline, ''):
         break
 
 if url:
-    # ذخیره لینک در فایل proxy_url.txt
+    # ذخیره لینک در فایل proxy_url.txt با استفاده از GitHub API
     r = requests.get(f"https://api.github.com/repos/{repo}/contents/proxy_url.txt", headers=headers)
     sha = r.json().get("sha") if r.status_code == 200 else None
-    payload = {"message": "Update URL", "content": base64.b64encode(url.encode()).decode(), "branch": "main"}
-    if sha: payload["sha"] = sha
-    requests.put(f"https://api.github.com/repos/{repo}/contents/proxy_url.txt", json=payload, headers=headers)
-    print("URL saved to repository.")
+    payload = {
+        "message": "Update URL", 
+        "content": base64.b64encode(url.encode()).decode(), 
+        "branch": "main"
+    }
+    if sha: 
+        payload["sha"] = sha
+        
+    res = requests.put(f"https://api.github.com/repos/{repo}/contents/proxy_url.txt", json=payload, headers=headers)
+    if res.status_code in (200, 201):
+        print("URL saved to repository successfully.")
+    else:
+        print(f"Failed to save URL: {res.text}")
 
-# زنده نگه داشتن اسکریپت تا زمانی که تونل باز است
+# زنده نگه داشتن اسکریپت
 p.wait()
