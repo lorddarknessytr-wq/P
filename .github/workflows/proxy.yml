@@ -2,10 +2,13 @@ name: Gemini Proxy
 on:
   workflow_dispatch:
 
+permissions:
+  contents: write # ⭐ این خط برای اجازه دادن به آپدیت فایل لازم است
+
 jobs:
   run-proxy:
     runs-on: ubuntu-latest
-    timeout-minutes: 360 # محدودیت دقیق ۶ ساعت
+    timeout-minutes: 360
 
     steps:
       - uses: actions/checkout@v4
