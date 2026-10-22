@@ -1,27 +1,22 @@
-name: Gemini Proxy
+name: Gemini Proxy Worker
 on:
   workflow_dispatch:
 
 permissions:
-  contents: write # ⭐ این خط برای اجازه دادن به آپدیت فایل لازم است
+  contents: write
 
 jobs:
-  run-proxy:
+  run-worker:
     runs-on: ubuntu-latest
-    timeout-minutes: 360
-
+    timeout-minutes: 360 # اجرای دقیق ۶ ساعته
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-
       - name: Install dependencies
-        run: pip install -r requirements.txt
-
-      - name: Run Proxy and Save URL
+        run: pip install requests
+      - name: Run Worker
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          chmod +x start.sh
-          ./start.sh
+        run: python worker.py
