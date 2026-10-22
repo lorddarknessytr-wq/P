@@ -5,7 +5,7 @@ on:
 jobs:
   run-proxy:
     runs-on: ubuntu-latest
-    timeout-minutes: 360 # حداکثر ۶ ساعت
+    timeout-minutes: 360 # محدودیت دقیق ۶ ساعت
 
     steps:
       - uses: actions/checkout@v4
@@ -16,10 +16,9 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Run Proxy and Update Gist
+      - name: Run Proxy and Save URL
         env:
-          GIST_TOKEN: ${{ secrets.GIST_TOKEN }}
-          GIST_ID: ${{ secrets.GIST_ID }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           chmod +x start.sh
           ./start.sh
