@@ -26,9 +26,8 @@ def api_list(path):
         if r.status_code == 200:
             return r.json()
         if r.status_code == 404:
-            print(f"⚠️ Folder {path} not found. Please create it.", flush=True)
+            print(f"⚠️ Folder {path} not found.", flush=True)
             return []
-        print(f"Error listing {path}: {r.status_code}", flush=True)
     except Exception as e:
         print(f"API LIST error for {path}: {e}", flush=True)
     return []
@@ -50,8 +49,8 @@ def api_delete(path):
         if sha:
             payload = {"message": f"Delete {path}", "sha": sha, "branch": "main"}
             requests.delete(f"https://api.github.com/repos/{repo}/contents/{path}", json=payload, headers=headers, timeout=15)
-    except Exception as e:
-        print(f"API DELETE error for {path}: {e}", flush=True)
+    except Exception:
+        pass
 
 print("🚀 Worker is running and waiting for requests...", flush=True)
 
@@ -68,11 +67,11 @@ while True:
                     try:
                         req = json.loads(content)
                         
-                        # ⭐ رمزگشایی کلید API
+                        # ⭐ این خط کلید رو از حالت رمزنگاری شده در میاره
                         b64_key = req["api_key"]
                         key = base64.b64decode(b64_key).decode('utf-8')
                         
-                        model = req.get("model", "gemini-3.8-flash")
+                        model = req.get("model", "gemini-3.6-flash")
                         prompt = req["prompt"]
                         
                         print(f"📡 Sending to Gemini (Model: {model})...", flush=True)
