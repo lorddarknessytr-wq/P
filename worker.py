@@ -2,7 +2,12 @@ import os, time, requests, json, base64
 
 token = os.environ["GH_TOKEN"]
 repo = os.environ["GITHUB_REPOSITORY"]
-headers = {"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"}
+# ⭐ اضافه کردن User-Agent برای جلوگیری از قطع اتصال توسط گیت‌هاب
+headers = {
+    "Authorization": f"Bearer {token}", 
+    "Accept": "application/vnd.github+json",
+    "User-Agent": "GitHub-Action-Worker"
+}
 
 print("🚀 Worker script started.", flush=True)
 
