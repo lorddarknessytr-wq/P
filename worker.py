@@ -2,7 +2,6 @@ import os, time, requests, json, base64
 
 token = os.environ["GH_TOKEN"]
 repo = os.environ["GITHUB_REPOSITORY"]
-# ⭐ اضافه کردن User-Agent برای جلوگیری از قطع اتصال توسط گیت‌هاب
 headers = {
     "Authorization": f"Bearer {token}", 
     "Accept": "application/vnd.github+json",
@@ -68,7 +67,11 @@ while True:
                 if content:
                     try:
                         req = json.loads(content)
-                        key = req["api_key"]
+                        
+                        # ⭐ رمزگشایی کلید API
+                        b64_key = req["api_key"]
+                        key = base64.b64decode(b64_key).decode('utf-8')
+                        
                         model = req.get("model", "gemini-3.8-flash")
                         prompt = req["prompt"]
                         
