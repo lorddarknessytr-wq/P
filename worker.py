@@ -1,5 +1,4 @@
 import os, time, requests, json, base64
-from datetime import datetime, timezone, timedelta
 
 token = os.environ["GH_TOKEN"]
 repo = os.environ["GITHUB_REPOSITORY"]
@@ -53,32 +52,10 @@ def api_delete(path):
     except Exception:
         pass
 
-def cleanup_stale_responses(max_age_minutes=15):
-    """Delete abandoned response artifacts so GitHub repositories do not grow forever.
-    Responses are retained briefly because the Runflare client polls for them.
-    """
-    cutoff = datetime.now(timezone.utc) - timedelta(minutes=max_age_minutes)
-    for item in api_list("responses"):
-        name = item.get("name", "")
-        if not name.endswith(".json"):
-            continue
-        stamp = item.get("updated_at") or item.get("created_at")
-        try:
-            created = datetime.fromisoformat(stamp.replace("Z", "+00:00"))
-            if created < cutoff:
-                api_delete("responses/" + name)
-                print(f"🧹 Deleted stale response: {name}", flush=True)
-        except Exception:
-            continue
-
 print("🚀 Worker is running and waiting for requests...", flush=True)
-_last_cleanup = 0
 
 while True:
     try:
-        if time.time() - _last_cleanup >= 300:
-            cleanup_stale_responses()
-            _last_cleanup = time.time()
         reqs = api_list("requests")
         for file in reqs:
             if file["name"].endswith(".json"):
