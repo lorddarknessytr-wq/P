@@ -35,8 +35,15 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt
 
-      - name: Install CPU inference runtime
+      - name: Install prebuilt CPU inference runtime
+        id: llama_cpu_wheel
         continue-on-error: true
+        run: |
+          python -m pip install --only-binary=:all: llama-cpp-python==0.3.36 \
+            --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu
+
+      - name: Build CPU inference runtime only if no wheel is available
+        if: steps.llama_cpu_wheel.outcome != 'success'
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y libopenblas-dev cmake ninja-build
