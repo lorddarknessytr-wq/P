@@ -26,13 +26,51 @@ MODEL_FILE_NAME = "Qwen3-4B-Q4_K_M.gguf"
 MODEL_URL = f"https://huggingface.co/{MODEL_REPO}/resolve/main/{MODEL_FILE_NAME}"
 MODEL_DIR = Path(os.path.expanduser(os.environ.get("TLP_MODEL_CACHE", str(Path.home() / ".cache" / "tlp-ai"))))
 MODEL_FILE = MODEL_DIR / MODEL_FILE_NAME
-MODEL_CTX = 4096
+MODEL_CTX = 8192
 MODEL_THREADS = max(1, min(4, os.cpu_count() or 2))
 _MODEL = None
 _MODEL_LOCK = threading.Lock()
 _GENERATION_LOCK = threading.Lock()
 
 print(f"TLP worker started for {REPO}@{BRANCH}.", flush=True)
+SESSION_STARTED = time.monotonic()
+try:
+    _run_started_text = os.environ.get("TLP_RUN_STARTED_AT", "").replace("Z", "+00:00")
+    RUN_STARTED_EPOCH = datetime.fromisoformat(_run_started_text).timestamp() if _run_started_text else time.time()
+except Exception:
+    RUN_STARTED_EPOCH = time.time()
+RESTART_AFTER_SECONDS = 355 * 60
+_LAST_SELF_DISPATCH = 0.0
+_SELF_DISPATCH_SENT = False
+
+
+def dispatch_self_restart_if_due():
+    """Queue the next six-hour run five minutes before this runner's limit.
+
+    For a single-repository deployment this keeps the same proxy/model worker
+    available without requiring a config edit. The pending run starts as the
+    current six-hour job ends (workflow concurrency is intentionally non-canceling).
+    """
+    global _LAST_SELF_DISPATCH, _SELF_DISPATCH_SENT
+    elapsed = max(0.0, time.time() - RUN_STARTED_EPOCH)
+    if _SELF_DISPATCH_SENT or elapsed < RESTART_AFTER_SECONDS:
+        return
+    now = time.monotonic()
+    if now - _LAST_SELF_DISPATCH < 60:
+        return
+    _LAST_SELF_DISPATCH = now
+    url = f"https://api.github.com/repos/{REPO}/actions/workflows/proxy.yml/dispatches"
+    try:
+        response = requests.post(
+            url, json={"ref": BRANCH}, headers=HEADERS, timeout=15,
+        )
+        if response.status_code == 204:
+            _SELF_DISPATCH_SENT = True
+            print("Next single-repository proxy/model run queued for the six-hour handover.", flush=True)
+        else:
+            print(f"Self-dispatch was rejected: HTTP {response.status_code} {response.text[:180]}", flush=True)
+    except Exception as exc:
+        print(f"Self-dispatch failed: {type(exc).__name__}: {str(exc)[:120]}", flush=True)
 
 
 def api_get(path):
@@ -178,7 +216,7 @@ def run_local_decision(request_data):
     llm = load_decision_model()
     if llm is None:
         return {"error": "decision_model_unavailable", "engine": MODEL_FILE_NAME}
-    prompt = str(request_data.get("prompt") or "").strip()[:6000]
+    prompt = str(request_data.get("prompt") or "").strip()[:16000]
     if not prompt:
         return {"error": "empty_prompt", "engine": MODEL_FILE_NAME}
     system = str(request_data.get("system") or "").strip()[:3000]
@@ -291,6 +329,7 @@ _last_cleanup = 0
 
 while True:
     try:
+        dispatch_self_restart_if_due()
         if time.time() - _last_cleanup >= 300:
             cleanup_stale_queue()
             _last_cleanup = time.time()
