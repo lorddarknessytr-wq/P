@@ -26,7 +26,7 @@ MODEL_FILE_NAME = "Qwen3-4B-Q4_K_M.gguf"
 MODEL_URL = f"https://huggingface.co/{MODEL_REPO}/resolve/main/{MODEL_FILE_NAME}"
 MODEL_DIR = Path(os.path.expanduser(os.environ.get("TLP_MODEL_CACHE", str(Path.home() / ".cache" / "tlp-ai"))))
 MODEL_FILE = MODEL_DIR / MODEL_FILE_NAME
-MODEL_CTX = 8192
+MODEL_CTX = 4096
 MODEL_THREADS = max(1, min(4, os.cpu_count() or 2))
 _MODEL = None
 _MODEL_LOCK = threading.Lock()
@@ -224,23 +224,23 @@ def run_local_decision(request_data):
         "You are a precise decision engine. Analyze the request carefully. "
         "Return ONLY one valid JSON object in Persian unless another language is requested. "
         "Prefer these fields when relevant: decision, rationale, confidence (0..1), next_steps. "
-        "Do not invent facts; state uncertainty explicitly."
+        "Do not invent facts; state uncertainty explicitly. For short catalog matching, be concise and skip extended reasoning. /no_think"
     )
     try:
-        max_tokens = max(64, min(900, int(request_data.get("max_tokens", 420))))
+        max_tokens = max(48, min(300, int(request_data.get("max_tokens", 120))))
     except (TypeError, ValueError):
-        max_tokens = 420
+        max_tokens = 120
     messages = [{"role": "system", "content": system}, {"role": "user", "content": prompt}]
     with _GENERATION_LOCK:
         try:
             try:
                 result = llm.create_chat_completion(
-                    messages=messages, temperature=0.1, top_p=0.85,
+                    messages=messages, temperature=0.0, top_p=0.65,
                     max_tokens=max_tokens, response_format={"type": "json_object"},
                 )
             except (TypeError, ValueError):
                 result = llm.create_chat_completion(
-                    messages=messages, temperature=0.1, top_p=0.85,
+                    messages=messages, temperature=0.0, top_p=0.65,
                     max_tokens=max_tokens,
                 )
             raw = result["choices"][0]["message"].get("content") or ""
@@ -256,7 +256,7 @@ def run_local_decision(request_data):
 def process_proxy_request(request_data):
     try:
         key = base64.b64decode(request_data["api_key"]).decode("utf-8")
-        model = request_data.get("model", "gemini-2.5-flash-lite")
+        model = request_data.get("model", "gemini-3.5-flash-lite")
         prompt = str(request_data.get("prompt") or "")
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={key}"
         response = requests.post(url, json={"contents": [{"parts": [{"text": prompt}]}]}, timeout=40)
