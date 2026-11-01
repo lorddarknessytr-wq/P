@@ -5,6 +5,7 @@ on:
 
 permissions:
   contents: write
+  actions: write
 
 concurrency:
   group: tlp-proxy-decision-${{ github.repository }}
@@ -48,4 +49,5 @@ jobs:
           GIST_TOKEN: ${{ secrets.GIST_TOKEN }}
           GIST_ID: ${{ secrets.GIST_ID }}
           TLP_MODEL_CACHE: ~/.cache/tlp-ai
+          TLP_RUN_STARTED_AT: ${{ github.run_started_at }}
         run: bash start.sh
