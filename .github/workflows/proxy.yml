@@ -1,60 +1,37 @@
-name: TLP Gemini Proxy + Local Decision Model
+name: TLP Gemini Proxy Worker
 
-on:
+"on":
   workflow_dispatch:
 
 permissions:
   contents: write
-  actions: write
 
 concurrency:
-  group: tlp-proxy-decision-${{ github.repository }}
+  group: tlp-gemini-proxy-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
-  proxy-and-decision:
+  run-worker:
     runs-on: ubuntu-latest
     timeout-minutes: 360
     steps:
-      - name: Checkout repository
+      - name: Check out proxy repository
         uses: actions/checkout@v4
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: "3.11"
+          cache: pip
 
-      - name: Cache local Qwen model
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/tlp-ai
-          key: tlp-qwen3-4b-q4km-v1
+      - name: Install dependencies
+        run: python -m pip install --disable-pip-version-check -r requirements.txt
 
-      - name: Install proxy and worker dependencies
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install -r requirements.txt
-
-      - name: Install prebuilt CPU inference runtime
-        id: llama_cpu_wheel
-        continue-on-error: true
-        run: |
-          python -m pip install --only-binary=:all: llama-cpp-python==0.3.36 \
-            --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu
-
-      - name: Build CPU inference runtime only if no wheel is available
-        if: steps.llama_cpu_wheel.outcome != 'success'
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y libopenblas-dev cmake ninja-build
-          python -m pip install --upgrade scikit-build-core
-          CMAKE_ARGS="-DGGML_BLAS=ON -DGGML_BLAS_VENDOR=OpenBLAS" python -m pip install --no-cache-dir llama-cpp-python==0.3.36
-
-      - name: Start Gemini proxy, Cloudflare tunnel, and Qwen decision worker
+      - name: Run queue worker
         env:
-          GH_TOKEN: ${{ github.token }}
-          GIST_TOKEN: ${{ secrets.GIST_TOKEN }}
-          GIST_ID: ${{ secrets.GIST_ID }}
-          TLP_MODEL_CACHE: ~/.cache/tlp-ai
-          TLP_RUN_STARTED_AT: ${{ github.run_started_at }}
-        run: bash start.sh
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_REF_NAME: ${{ github.ref_name }}
+          POLL_SECONDS: "2"
+          WORKER_MAX_RUNTIME_SECONDS: "21300"
+        run: python -u worker.py
