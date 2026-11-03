@@ -151,6 +151,8 @@ class ProxyWorker:
             return None, None, 0
 
         if response.status_code != 200:
+            if response.status_code in (401, 403):
+                self.log.error("GitHub contents read rejected: HTTP %s path=%s; check Actions token Contents: write permission", response.status_code, path)
             return None, None, response.status_code
         try:
             data = response.json()
@@ -259,7 +261,28 @@ class ProxyWorker:
             return self._provider_error("NETWORK")
 
         if response.status_code != 200:
-            self.log.warning("Gemini returned HTTP %s", response.status_code)
+            # Log the exact provider status and safe Google error fields so the
+            # host can diagnose auth/quota/model failures without leaking the key.
+            try:
+                payload_error = response.json().get("error", {})
+            except Exception:
+                payload_error = {}
+            if not isinstance(payload_error, dict):
+                payload_error = {}
+            details = payload_error.get("details") or []
+            reason = ""
+            for detail in details:
+                if isinstance(detail, dict) and detail.get("reason"):
+                    reason = str(detail.get("reason"))[:100]
+                    break
+            message = " ".join(str(payload_error.get("message") or "").split())[:220]
+            self.log.error(
+                "Gemini provider error: HTTP %s status=%s reason=%s message=%s",
+                response.status_code,
+                str(payload_error.get("status") or "-")[:80],
+                reason or "-",
+                message or "-",
+            )
             return self._provider_error(f"HTTP_{response.status_code}")
 
         try:
@@ -299,6 +322,7 @@ class ProxyWorker:
             self.log.warning("Could not read queue item %s: HTTP %s", message_id, status)
             return False
 
+        request_data = None
         try:
             request_data = json.loads(raw_request)
         except (ValueError, TypeError):
@@ -306,7 +330,15 @@ class ProxyWorker:
         else:
             reply = self.generate_reply(request_data)
 
-        response_body = json.dumps({"reply": reply}, ensure_ascii=False)
+        error_code = ""
+        if isinstance(reply, str) and reply.startswith("AI_BACKEND_UNAVAILABLE:"):
+            error_code = reply.split(":", 1)[-1].strip()[:100]
+        response_body = json.dumps({
+            "reply": reply,
+            "error_code": error_code,
+            "model": str((request_data.get("model") if isinstance(request_data, dict) else "") or "gemini-3.5-flash-lite"),
+            "provider": "Gemini API",
+        }, ensure_ascii=False)
         if not self.put_text_file(response_path, response_body):
             # Keep the request for a later pass if saving the response fails.
             return False

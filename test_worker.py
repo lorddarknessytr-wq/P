@@ -9,9 +9,10 @@ from worker import ProxyWorker, decode_api_key, extract_gemini_text
 
 
 class FakeResponse:
-    def __init__(self, status_code=200, payload=None):
+    def __init__(self, status_code=200, payload=None, text=None):
         self.status_code = status_code
         self._payload = payload if payload is not None else {}
+        self.text = text if text is not None else json.dumps(self._payload)
 
     def json(self):
         return self._payload
@@ -133,6 +134,24 @@ class ProxyWorkerTests(unittest.TestCase):
         self.assertNotIn(f"requests/{message_id}.json", gh.files)
         saved = json.loads(gh.files[f"responses/{message_id}.json"][0])
         self.assertEqual(saved["reply"], "سلام، پاسخ آزمایشی.")
+
+    def test_provider_error_code_is_saved_for_runflare_diagnostics(self):
+        gh = FakeGitHubSession()
+        provider = FakeGeminiSession(FakeResponse(429, {
+            "error": {"status": "RESOURCE_EXHAUSTED", "message": "quota test"}
+        }))
+        worker = ProxyWorker("gh-test-token", "owner/P", session=gh, provider_session=provider)
+        message_id = "abcdef12-abcd-1234-abcd-123456789abc"
+        request = {
+            "api_key": base64.b64encode(b"bad-key").decode(),
+            "model": "gemini-test-model", "prompt": "hello",
+        }
+        gh.files[f"requests/{message_id}.json"] = (json.dumps(request), "request-sha")
+        self.assertEqual(worker.process_pending_requests(), 1)
+        saved = json.loads(gh.files[f"responses/{message_id}.json"][0])
+        self.assertEqual(saved["error_code"], "HTTP_429")
+        self.assertIn("AI_BACKEND_UNAVAILABLE", saved["reply"])
+        self.assertEqual(saved["provider"], "Gemini API")
 
     def test_existing_response_prevents_duplicate_gemini_call(self):
         gh = FakeGitHubSession()
