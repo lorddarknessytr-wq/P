@@ -30,9 +30,8 @@ jobs:
       - name: Run queue worker
         env:
           GH_TOKEN: ${{ github.token }}
-          HUNTER_QUEUE_PRIVATE_KEY: ${{ secrets.HUNTER_QUEUE_PRIVATE_KEY }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           GITHUB_REF_NAME: ${{ github.ref_name }}
-          POLL_SECONDS: "3"
+          POLL_SECONDS: "2"
           WORKER_MAX_RUNTIME_SECONDS: "21300"
         run: python -u worker.py
