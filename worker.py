@@ -16,8 +16,6 @@ import os
 import re
 import sys
 import time
-import subprocess
-import tempfile
 from typing import Any, Optional
 from urllib.parse import quote
 
@@ -75,43 +73,6 @@ def extract_gemini_text(payload: Any) -> str:
             if isinstance(part, dict) and isinstance(part.get("text"), str):
                 pieces.append(part["text"])
     return "".join(pieces).strip()
-
-
-def decrypt_hunter_key(encoded_ciphertext: Any) -> Optional[str]:
-    """Decrypt a Termux-originated API key using the private RSA key stored as an Actions secret.
-
-    Queue commits contain ciphertext only. The private key never enters the repository.
-    Termux encrypts the API key with the matching public key using RSA-OAEP/SHA-256.
-    """
-    if not isinstance(encoded_ciphertext, str) or not encoded_ciphertext.strip():
-        return None
-    private_pem = os.getenv("HUNTER_QUEUE_PRIVATE_KEY", "")
-    if not private_pem.strip():
-        raise RuntimeError("MISSING_HUNTER_QUEUE_PRIVATE_KEY")
-    try:
-        ciphertext = base64.b64decode(encoded_ciphertext.strip(), validate=True)
-    except (binascii.Error, ValueError):
-        raise RuntimeError("INVALID_ENCRYPTED_API_KEY")
-    with tempfile.TemporaryDirectory(prefix="hunter-worker-") as temp_dir:
-        private_path = os.path.join(temp_dir, "private.pem")
-        input_path = os.path.join(temp_dir, "cipher.bin")
-        output_path = os.path.join(temp_dir, "plain.txt")
-        with open(private_path, "w", encoding="utf-8") as handle:
-            handle.write(private_pem)
-        os.chmod(private_path, 0o600)
-        with open(input_path, "wb") as handle:
-            handle.write(ciphertext)
-        result = subprocess.run(
-            ["openssl", "pkeyutl", "-decrypt", "-inkey", private_path,
-             "-in", input_path, "-out", output_path,
-             "-pkeyopt", "rsa_padding_mode:oaep", "-pkeyopt", "rsa_oaep_md:sha256"],
-            capture_output=True, text=True, timeout=15, check=False,
-        )
-        if result.returncode != 0 or not os.path.exists(output_path):
-            raise RuntimeError("API_KEY_DECRYPT_FAILED")
-        with open(output_path, "r", encoding="utf-8") as handle:
-            value = handle.read().strip()
-        return value or None
 
 
 def _safe_provider_error(response: requests.Response) -> tuple[str, int]:
@@ -359,11 +320,10 @@ class ProxyWorker:
         """Process one isolated Hunter task; never logs or returns API keys."""
         if request_data.get("kind") != expected_kind:
             return {"ok": False, "error_code": "INVALID_TASK_KIND"}
-        api_key = decrypt_hunter_key(request_data.get("api_key_ciphertext_b64"))
-        if not api_key:
-            return {"ok": False, "error_code": "MISSING_API_KEY"}
-
         if expected_kind == "jev_decision":
+            api_key = decode_api_key(request_data.get("api_key"))
+            if not api_key:
+                return {"ok": False, "error_code": "MISSING_OR_INVALID_JEV_API_KEY"}
             body = request_data.get("payload")
             if not isinstance(body, dict) or not isinstance(body.get("state"), (str, dict, list)) or not isinstance(body.get("questions"), dict):
                 return {"ok": False, "error_code": "INVALID_JEV_PAYLOAD"}
@@ -389,6 +349,9 @@ class ProxyWorker:
             return {"ok": True, "provider": "Jev-Style API", "result": data}
 
         if expected_kind == "gemini_market":
+            api_key = decode_api_key(request_data.get("api_key"))
+            if not api_key:
+                return {"ok": False, "error_code": "MISSING_OR_INVALID_GEMINI_API_KEY"}
             prompt = request_data.get("prompt")
             model = str(request_data.get("model") or "gemini-3.8-flash").strip()
             if not isinstance(prompt, str) or not prompt.strip():
@@ -565,8 +528,9 @@ class ProxyWorker:
         poll_seconds = _env_float("POLL_SECONDS", 2.0, 1.0, 15.0)
         max_runtime = _env_int("WORKER_MAX_RUNTIME_SECONDS", 21300, 600, 21300)
         started = time.monotonic()
-        self.log.info("GitHub proxy worker started for %s (branch %s)", self.repository, self.branch)
-        self.log.info("Queues active: requests/responses (legacy), decision_requests/decision_responses (Hunter), market_requests/market_responses (Hunter)")
+        self.log.info("TLP GitHub proxy worker started for %s (branch %s)", self.repository, self.branch)
+        self.log.info("Legacy queue active: requests/responses")
+        self.log.info("Hunter queues active: decision_requests/decision_responses and market_requests/market_responses")
         self.log.info("Ranflare controls repository rotation; worker will not self-dispatch")
         self.log.info("Queue polling interval: %.1fs", poll_seconds)
 

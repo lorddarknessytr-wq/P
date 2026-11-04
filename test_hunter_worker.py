@@ -1,13 +1,9 @@
 import base64
 import json
-import os
-import pathlib
-import subprocess
-import tempfile
 import unittest
 from unittest.mock import patch
 
-from worker import ProxyWorker, decrypt_hunter_key
+from worker import ProxyWorker, decode_api_key
 from test_worker import FakeGitHubSession, FakeGeminiSession, FakeResponse
 
 
@@ -18,26 +14,6 @@ class HeaderResponse(FakeResponse):
 
 
 class HunterWorkerTests(unittest.TestCase):
-    def test_rsa_oaep_decrypts_termux_ciphertext(self):
-        with tempfile.TemporaryDirectory() as temp:
-            private = pathlib.Path(temp) / "private.pem"
-            public = pathlib.Path(temp) / "public.pem"
-            plain = pathlib.Path(temp) / "plain.txt"
-            encrypted = pathlib.Path(temp) / "cipher.bin"
-            subprocess.run(["openssl", "genpkey", "-algorithm", "RSA", "-pkeyopt",
-                            "rsa_keygen_bits:2048", "-out", str(private)], check=True,
-                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            subprocess.run(["openssl", "pkey", "-in", str(private), "-pubout", "-out", str(public)],
-                           check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            plain.write_text("jev-test-secret", encoding="utf-8")
-            subprocess.run(["openssl", "pkeyutl", "-encrypt", "-pubin", "-inkey", str(public),
-                            "-in", str(plain), "-out", str(encrypted), "-pkeyopt", "rsa_padding_mode:oaep",
-                            "-pkeyopt", "rsa_oaep_md:sha256"], check=True,
-                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            encoded = base64.b64encode(encrypted.read_bytes()).decode("ascii")
-            with patch.dict(os.environ, {"HUNTER_QUEUE_PRIVATE_KEY": private.read_text(encoding="utf-8")}):
-                self.assertEqual(decrypt_hunter_key(encoded), "jev-test-secret")
-
     def test_decision_queue_calls_jev_and_writes_separate_response(self):
         gh = FakeGitHubSession()
         provider = FakeGeminiSession(HeaderResponse(200, {
@@ -46,11 +22,11 @@ class HunterWorkerTests(unittest.TestCase):
         }))
         worker = ProxyWorker("gh-test-token", "owner/P", session=gh, provider_session=provider)
         request_id = "hunter-jev-0001"
-        request = {"kind": "jev_decision", "api_key_ciphertext_b64": "ciphertext-only",
+        request = {"kind": "jev_decision",
+                   "api_key": base64.b64encode(b"jev-private-key").decode("ascii"),
                    "payload": {"state": "listing", "questions": {"target_match": {"type": "noul", "instructions": "match?"}}}}
         gh.files[f"decision_requests/{request_id}.json"] = (json.dumps(request), "request-sha")
-        with patch("worker.decrypt_hunter_key", return_value="jev-private-key"):
-            self.assertTrue(worker.process_hunter_request_file(f"decision_requests/{request_id}.json", "decision_responses"))
+        self.assertTrue(worker.process_hunter_request_file(f"decision_requests/{request_id}.json", "decision_responses"))
         self.assertNotIn(f"decision_requests/{request_id}.json", gh.files)
         saved = json.loads(gh.files[f"decision_responses/{request_id}.json"][0])
         self.assertTrue(saved["ok"])
@@ -66,11 +42,11 @@ class HunterWorkerTests(unittest.TestCase):
         }))
         worker = ProxyWorker("gh-test-token", "owner/P", session=gh, provider_session=provider)
         request_id = "hunter-market-0001"
-        request = {"kind": "gemini_market", "api_key_ciphertext_b64": "ciphertext-only",
+        request = {"kind": "gemini_market",
+                   "api_key": base64.b64encode(b"gemini-private-key").decode("ascii"),
                    "model": "gemini-3.8-flash", "prompt": "classify sample listings"}
         gh.files[f"market_requests/{request_id}.json"] = (json.dumps(request), "request-sha")
-        with patch("worker.decrypt_hunter_key", return_value="gemini-private-key"):
-            self.assertTrue(worker.process_hunter_request_file(f"market_requests/{request_id}.json", "market_responses"))
+        self.assertTrue(worker.process_hunter_request_file(f"market_requests/{request_id}.json", "market_responses"))
         saved = json.loads(gh.files[f"market_responses/{request_id}.json"][0])
         self.assertTrue(saved["ok"])
         self.assertEqual(saved["model"], "gemini-3.8-flash")
