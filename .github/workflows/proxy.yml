@@ -6,7 +6,6 @@ name: TLP Gemini Proxy Worker
 permissions:
   contents: write
 
-  actions: write
 concurrency:
   group: tlp-gemini-proxy-${{ github.ref }}
   cancel-in-progress: false
@@ -31,10 +30,8 @@ jobs:
       - name: Run queue worker
         env:
           GH_TOKEN: ${{ github.token }}
-          HUNTER37_JEV_API_KEY: ${{ secrets.HUNTER37_JEV_API_KEY }}
-          SHARED_WORKER_AUTO_RESTART: "true"
           GITHUB_REPOSITORY: ${{ github.repository }}
           GITHUB_REF_NAME: ${{ github.ref_name }}
           POLL_SECONDS: "2"
           WORKER_MAX_RUNTIME_SECONDS: "21300"
-        run: python -u combined_worker.py
+        run: python -u worker.py
